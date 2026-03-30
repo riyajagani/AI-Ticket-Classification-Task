@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AI-powered support ticket classifier and auto-response generator. Submit your ticket and get instant category detection and a draft response." />
+  <title>TicketAI — Smart Support Classifier</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ------------------------------------------------------------------ */
+    /* Design tokens                                                        */
+    /* ------------------------------------------------------------------ */
+    :root {
+      --bg:          #0b0f1a;
+      --surface:     #111827;
+      --surface-2:   #1a2235;
+      --border:      rgba(255,255,255,0.07);
+      --accent:      #6366f1;
+      --accent-2:    #8b5cf6;
+      --accent-glow: rgba(99,102,241,0.35);
+      --success:     #10b981;
+      --warning:     #f59e0b;
+      --danger:      #ef4444;
+      --text-1:      #f1f5f9;
+      --text-2:      #94a3b8;
+      --text-3:      #475569;
+      --radius:      14px;
+      --radius-sm:   8px;
+      --shadow:      0 8px 32px rgba(0,0,0,0.45);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Reset + base                                                         */
+    /* ------------------------------------------------------------------ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text-1);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Ambient background blobs */
+    body::before, body::after {
+      content: '';
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    body::before {
+      width: 600px; height: 600px;
+      top: -180px; left: -180px;
+      background: radial-gradient(circle, rgba(99,102,241,0.18) 0%, transparent 70%);
+    }
+    body::after {
+      width: 500px; height: 500px;
+      bottom: -150px; right: -150px;
+      background: radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Layout wrapper                                                       */
+    /* ------------------------------------------------------------------ */
+    .wrapper {
+      position: relative;
+      z-index: 1;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Header                                                               */
+    /* ------------------------------------------------------------------ */
+    header { text-align: center; margin-bottom: 52px; }
+
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      font-size: 1.1rem;
+      -webkit-text-fill-color: white;
+      flex-shrink: 0;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #fff 30%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 14px;
+    }
+
+    .subtitle {
+      font-size: 1.05rem;
+      color: var(--text-2);
+      max-width: 540px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Main card                                                            */
+    /* ------------------------------------------------------------------ */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 36px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Form                                                                 */
+    /* ------------------------------------------------------------------ */
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-2);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    textarea#ticket-input {
+      width: 100%;
+      min-height: 160px;
+      background: var(--surface-2);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-1);
+      font-family: inherit;
+      font-size: 0.975rem;
+      line-height: 1.65;
+      padding: 16px;
+      resize: vertical;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+    }
+    textarea#ticket-input::placeholder { color: var(--text-3); }
+    textarea#ticket-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .form-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+    #char-count { font-size: 0.78rem; color: var(--text-3); }
+    #char-count.warn { color: var(--warning); }
+    #char-count.danger { color: var(--danger); }
+
+    /* ------------------------------------------------------------------ */
+    /* Button                                                               */
+    /* ------------------------------------------------------------------ */
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 20px;
+      width: 100%;
+      justify-content: center;
+      padding: 14px 28px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.975rem;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      letter-spacing: 0.01em;
+      transition: filter 0.2s, transform 0.15s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px var(--accent-glow);
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-primary::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 6px 28px var(--accent-glow); }
+    .btn-primary:hover::after { opacity: 1; }
+    .btn-primary:active { transform: translateY(0); filter: brightness(0.95); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; filter: none; }
+
+    /* Spinner */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2.5px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    .btn-primary.loading .spinner { display: block; }
+    .btn-primary.loading .btn-label { opacity: 0.6; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ------------------------------------------------------------------ */
+    /* Examples pills                                                       */
+    /* ------------------------------------------------------------------ */
+    .examples {
+      margin-top: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .examples-label {
+      font-size: 0.78rem;
+      color: var(--text-3);
+      font-weight: 500;
+      flex-basis: 100%;
+      margin-bottom: 2px;
+    }
+    .example-pill {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 5px 14px;
+      font-size: 0.78rem;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+      white-space: nowrap;
+    }
+    .example-pill:hover {
+      background: rgba(99,102,241,0.15);
+      border-color: var(--accent);
+      color: var(--text-1);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Divider                                                              */
+    /* ------------------------------------------------------------------ */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 32px 0;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Results section                                                      */
+    /* ------------------------------------------------------------------ */
+    #results {
+      display: none;
+      animation: fadeSlideUp 0.4s ease both;
+    }
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 560px) { .results-grid { grid-template-columns: 1fr; } }
+
+    .stat-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 20px 22px;
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      border-radius: 4px 4px 0 0;
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .stat-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-1);
+    }
+    .stat-sub {
+      font-size: 0.8rem;
+      color: var(--text-2);
+      margin-top: 4px;
+    }
+
+    /* Category badge */
+    .category-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2));
+      border: 1px solid rgba(99,102,241,0.4);
+      color: #a5b4fc;
+      padding: 3px 12px;
+      border-radius: 100px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      margin-top: 6px;
+    }
+
+    /* Confidence bar */
+    .conf-bar-track {
+      height: 6px;
+      background: var(--border);
+      border-radius: 100px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+    .conf-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      border-radius: 100px;
+      width: 0;
+      transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* Auto-response box */
+    .response-box {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 20px 22px;
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .response-box .stat-label { margin-bottom: 12px; }
+    .response-text {
+      font-size: 0.935rem;
+      line-height: 1.7;
+      color: var(--text-2);
+    }
+
+    /* Copy button */
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      padding: 7px 14px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-2);
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .copy-btn:hover {
+      background: rgba(99,102,241,0.1);
+      border-color: var(--accent);
+      color: var(--text-1);
+    }
+    .copy-btn.copied { color: var(--success); border-color: var(--success); }
+
+    /* Score breakdown */
+    .breakdown-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 12px;
+    }
+    .score-rows { display: flex; flex-direction: column; gap: 10px; }
+    .score-row { display: flex; align-items: center; gap: 12px; }
+    .score-name {
+      font-size: 0.82rem;
+      color: var(--text-2);
+      flex: 0 0 160px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .score-track {
+      flex: 1;
+      height: 5px;
+      background: var(--border);
+      border-radius: 100px;
+      overflow: hidden;
+    }
+    .score-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 100px;
+      width: 0;
+      transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .score-fill.top { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+    .score-pct {
+      font-size: 0.78rem;
+      color: var(--text-3);
+      flex: 0 0 38px;
+      text-align: right;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Error banner                                                         */
+    /* ------------------------------------------------------------------ */
+    #error-banner {
+      display: none;
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.35);
+      color: #fca5a5;
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      font-size: 0.875rem;
+      margin-top: 16px;
+      animation: fadeSlideUp 0.3s ease;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Footer                                                               */
+    /* ------------------------------------------------------------------ */
+    footer {
+      text-align: center;
+      margin-top: 48px;
+      font-size: 0.78rem;
+      color: var(--text-3);
+    }
+    footer span { color: var(--accent); }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🎫</div>
+      TicketAI
+    </div>
+    <h1>Instant Ticket Classification<br>&amp; Auto-Response</h1>
+    <p class="subtitle">
+      Paste any support ticket below. Our AI model will classify its category,
+      assess its priority, and draft a professional response — in seconds.
+    </p>
+  </header>
+
+  <!-- Main card -->
+  <div class="card">
+
+    <!-- Input form -->
+    <section aria-label="Ticket submission form">
+      <label for="ticket-input">Your Support Ticket</label>
+      <textarea
+        id="ticket-input"
+        placeholder="e.g. I was charged twice for my subscription this month and need a refund urgently..."
+        maxlength="2000"
+        aria-describedby="char-count"
+      ></textarea>
+      <div class="form-footer">
+        <span id="char-count">0 / 2000</span>
+      </div>
+
+      <!-- Example pills -->
+      <div class="examples">
+        <span class="examples-label">Try an example:</span>
+        <button class="example-pill" id="ex-billing"  aria-label="Example: forgot password">🔑 Forgot password</button>
+        <button class="example-pill" id="ex-tech"     aria-label="Example: account locked">🚫 Account locked</button>
+        <button class="example-pill" id="ex-account"  aria-label="Example: leave balance">🌴 Leave balance</button>
+        <button class="example-pill" id="ex-feature"  aria-label="Example: apply for leave">📄 Apply for leave</button>
+        <button class="example-pill" id="ex-shipping" aria-label="Example: app crashing">🔧 App crashing</button>
+      </div>
+
+      <button class="btn-primary" id="classify-btn" aria-label="Classify ticket">
+        <div class="spinner" aria-hidden="true"></div>
+        <span class="btn-label">Classify Ticket</span>
+        <span aria-hidden="true">→</span>
+      </button>
+
+      <div id="error-banner" role="alert" aria-live="assertive"></div>
+    </section>
+
+    <!-- Results -->
+    <div id="results" aria-live="polite">
+      <div class="divider"></div>
+
+      <!-- Category card -->
+      <div class="stat-card" style="margin-bottom:16px;">
+        <div class="stat-label">Detected Category</div>
+        <div class="stat-value" id="result-category">—</div>
+      </div>
+
+      <!-- Auto-response -->
+      <div class="response-box">
+        <div class="stat-label">Suggested Response</div>
+        <p class="response-text" id="result-response">—</p>
+        <button class="copy-btn" id="copy-btn" aria-label="Copy auto-response to clipboard">
+          <span id="copy-icon">📋</span>
+          <span id="copy-label">Copy response</span>
+        </button>
+      </div>
+    </div>
+
+  </div><!-- /.card -->
+
+  <footer>
+    Built with <span>Python · sentence-transformers · scikit-learn · Flask</span>
+  </footer>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ */
+/* Example tickets                                                      */
+/* ------------------------------------------------------------------ */
+const EXAMPLES = {
+  'ex-billing':  "I forgot my password and cannot log in.",
+  'ex-tech':     "My account is locked after too many failed login attempts.",
+  'ex-account':  "How many leave days do I have remaining this year?",
+  'ex-feature':  "I need to apply for sick leave starting tomorrow.",
+  'ex-shipping': "The application keeps crashing every time I open it.",
+};
+
+/* ------------------------------------------------------------------ */
+/* DOM refs                                                             */
+/* ------------------------------------------------------------------ */
+const ta      = document.getElementById('ticket-input');
+const counter = document.getElementById('char-count');
+const btn     = document.getElementById('classify-btn');
+const results = document.getElementById('results');
+const errBan  = document.getElementById('error-banner');
+const copyBtn = document.getElementById('copy-btn');
+
+/* ------------------------------------------------------------------ */
+/* Character counter                                                    */
+/* ------------------------------------------------------------------ */
+ta.addEventListener('input', () => {
+  const n = ta.value.length;
+  counter.textContent = `${n} / 2000`;
+  counter.className = n > 1800 ? 'danger' : n > 1400 ? 'warn' : '';
+});
+
+/* ------------------------------------------------------------------ */
+/* Example pills                                                        */
+/* ------------------------------------------------------------------ */
+Object.entries(EXAMPLES).forEach(([id, text]) => {
+  document.getElementById(id).addEventListener('click', () => {
+    ta.value = text;
+    ta.dispatchEvent(new Event('input'));
+    ta.focus();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Classify                                                             */
+/* ------------------------------------------------------------------ */
+btn.addEventListener('click', async () => {
+  const text = ta.value.trim();
+  if (!text) { showError('Please enter a support ticket before classifying.'); return; }
+  if (text.length > 2000) { showError('Ticket must be 2 000 characters or fewer.'); return; }
+
+  hideError();
+  setLoading(true);
+
+  try {
+    const res  = await fetch('/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket: text }),  // matches /predict expected key
+    });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || 'An unexpected error occurred.'); return; }
+    renderResults(data);
+  } catch {
+    showError('Network error — please check your connection and try again.');
+  } finally {
+    setLoading(false);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Render                                                               */
+/* ------------------------------------------------------------------ */
+function renderResults(data) {
+  document.getElementById('result-category').textContent = data.category;
+  document.getElementById('result-response').textContent = data.response;
+
+  results.style.display = 'block';
+  results.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ------------------------------------------------------------------ */
+/* Copy response                                                        */
+/* ------------------------------------------------------------------ */
+copyBtn.addEventListener('click', async () => {
+  const text = document.getElementById('result-response').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    copyBtn.classList.add('copied');
+    document.getElementById('copy-icon').textContent  = '✅';
+    document.getElementById('copy-label').textContent = 'Copied!';
+    setTimeout(() => {
+      copyBtn.classList.remove('copied');
+      document.getElementById('copy-icon').textContent  = '📋';
+      document.getElementById('copy-label').textContent = 'Copy response';
+    }, 2000);
+  } catch {
+    showError('Could not copy to clipboard.');
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* UI helpers                                                          */
+/* ------------------------------------------------------------------ */
+function setLoading(on) {
+  btn.disabled = on;
+  btn.classList.toggle('loading', on);
+}
+function showError(msg) {
+  errBan.textContent = msg;
+  errBan.style.display = 'block';
+}
+function hideError() {
+  errBan.style.display = 'none';
+}
+</script>
+</body>
+</html>
