@@ -1,74 +1,78 @@
 """
-model.py — Ticket Classification using SentenceTransformer + Logistic Regression.
+model.py — Lightweight Ticket Classifier using TF-IDF + Logistic Regression.
 
-The model is loaded and trained ONCE at module import time so every Flask
-request reuses the same in-memory objects with zero startup overhead.
+No PyTorch. No sentence-transformers. Total size: ~5 MB.
+Same predict_ticket() interface — drop-in replacement.
 """
 
 from __future__ import annotations
 
-import numpy as np
-from sentence_transformers import SentenceTransformer
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import LabelEncoder
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.pipeline import Pipeline
 
 # ---------------------------------------------------------------------------
-# 1. Load the sentence-transformer model (once, at import time)
+# 1. Training data
 # ---------------------------------------------------------------------------
 
-_EMBED_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+_TRAINING_DATA: list[tuple[str, str]] = [
+    # Authentication
+    ("I forgot my password",                         "Authentication"),
+    ("Unable to login",                              "Authentication"),
+    ("Password incorrect",                           "Authentication"),
+    ("My account is locked",                         "Authentication"),
+    ("How do I reset my password?",                  "Authentication"),
+    ("I cannot sign in to my account",               "Authentication"),
+    ("Login page keeps showing an error",            "Authentication"),
+    ("I entered wrong password too many times",      "Authentication"),
+    ("Two-factor authentication is not working",     "Authentication"),
+    ("I did not receive the OTP on my phone",        "Authentication"),
+    ("My session keeps expiring immediately",        "Authentication"),
+    ("How do I change my current password?",         "Authentication"),
+    ("Account credentials are not working",          "Authentication"),
+    ("Sign in failed with invalid credentials",      "Authentication"),
+    ("I am locked out of the system",                "Authentication"),
+
+    # HR
+    ("Check leave balance",                          "HR"),
+    ("How many leaves do I have",                    "HR"),
+    ("I want to apply for annual leave",             "HR"),
+    ("Can I carry forward unused leaves?",           "HR"),
+    ("What is the maternity leave policy?",          "HR"),
+    ("How do I apply for sick leave?",               "HR"),
+    ("I need to check my payslip",                   "HR"),
+    ("When will my salary be credited this month?",  "HR"),
+    ("How do I update my bank details for payroll?", "HR"),
+    ("What are the office working hours?",           "HR"),
+    ("I need a relieving letter from HR",            "HR"),
+    ("How do I submit my medical reimbursement?",    "HR"),
+    ("What is the leave encashment policy?",         "HR"),
+    ("I need to apply for work from home",           "HR"),
+    ("How many sick leaves am I entitled to?",       "HR"),
+
+    # Technical Support
+    ("The application is crashing on startup",       "Technical Support"),
+    ("I am getting a 500 internal server error",     "Technical Support"),
+    ("The website is loading very slowly",           "Technical Support"),
+    ("My data is not syncing across devices",        "Technical Support"),
+    ("The export feature is not working",            "Technical Support"),
+    ("I cannot upload files to the portal",          "Technical Support"),
+    ("The dashboard is showing incorrect data",      "Technical Support"),
+    ("My notifications are not appearing",           "Technical Support"),
+    ("The mobile app freezes on the home screen",    "Technical Support"),
+    ("I cannot connect to the VPN from home",        "Technical Support"),
+    ("The report is not generating correctly",       "Technical Support"),
+    ("Software update failed with an error code",    "Technical Support"),
+    ("The system is down and I cannot access it",    "Technical Support"),
+    ("Pages are not loading in the browser",         "Technical Support"),
+    ("I am getting a network connection error",      "Technical Support"),
+]
+
+_texts  = [t for t, _ in _TRAINING_DATA]
+_labels = [l for _, l in _TRAINING_DATA]
 
 # ---------------------------------------------------------------------------
-# 2. Training data  — label : [example tickets]
-# ---------------------------------------------------------------------------
-
-_TRAINING_DATA: dict[str, list[str]] = {
-    "Authentication": [
-        "I forgot my password",
-        "Unable to login",
-        "Password incorrect",
-        "My account is locked",
-        "How do I reset my password?",
-        "I cannot sign in to my account",
-        "Login page keeps showing an error",
-        "I entered the wrong password too many times",
-        "Two-factor authentication is not working",
-        "I did not receive the OTP on my phone",
-        "My session keeps expiring immediately",
-        "How do I change my current password?",
-    ],
-    "HR": [
-        "Check leave balance",
-        "How many leaves do I have",
-        "I want to apply for annual leave",
-        "Can I carry forward unused leaves?",
-        "What is the maternity leave policy?",
-        "How do I apply for sick leave?",
-        "I need to check my payslip",
-        "When will my salary be credited this month?",
-        "How do I update my bank account details for payroll?",
-        "What are the office working hours?",
-        "I need a relieving letter from HR",
-        "How do I submit my medical reimbursement claim?",
-    ],
-    "Technical Support": [
-        "The application is crashing on startup",
-        "I am getting a 500 internal server error",
-        "The website is loading very slowly",
-        "My data is not syncing across devices",
-        "The export feature is not working",
-        "I cannot upload files to the portal",
-        "The dashboard is showing incorrect data",
-        "My notifications are not appearing",
-        "The mobile app freezes on the home screen",
-        "I cannot connect to the VPN from home",
-        "The report is not generating correctly",
-        "Software update failed with an error code",
-    ],
-}
-
-# ---------------------------------------------------------------------------
-# 3. Auto-response templates per category
+# 2. Auto-response templates
 # ---------------------------------------------------------------------------
 
 _RESPONSES: dict[str, str] = {
@@ -89,41 +93,29 @@ _RESPONSES: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# 4. Prepare training data — texts + labels
+# 3. Build and train pipeline (TF-IDF → Logistic Regression)
+#    Runs ONCE at import time — zero per-request overhead.
 # ---------------------------------------------------------------------------
 
-_texts:  list[str] = []
-_labels: list[str] = []
+_PIPELINE = Pipeline([
+    ("tfidf", TfidfVectorizer(
+        ngram_range=(1, 2),   # unigrams + bigrams for better coverage
+        sublinear_tf=True,    # log-scale TF to reduce impact of very common terms
+        min_df=1,
+    )),
+    ("clf", LogisticRegression(
+        max_iter=1000,
+        C=5.0,
+        solver="lbfgs",
+        multi_class="multinomial",
+        random_state=42,
+    )),
+])
 
-for category, tickets in _TRAINING_DATA.items():
-    for ticket in tickets:
-        _texts.append(ticket)
-        _labels.append(category)
-
-# ---------------------------------------------------------------------------
-# 5. Encode texts into embeddings
-# ---------------------------------------------------------------------------
-
-_EMBEDDINGS: np.ndarray = _EMBED_MODEL.encode(_texts, show_progress_bar=False)
-
-# ---------------------------------------------------------------------------
-# 6. Train Logistic Regression classifier
-# ---------------------------------------------------------------------------
-
-_LABEL_ENC = LabelEncoder()
-_ENCODED_LABELS = _LABEL_ENC.fit_transform(_labels)
-
-_CLASSIFIER = LogisticRegression(
-    max_iter=1000,
-    C=5.0,
-    solver="lbfgs",
-    multi_class="multinomial",
-    random_state=42,
-)
-_CLASSIFIER.fit(_EMBEDDINGS, _ENCODED_LABELS)
+_PIPELINE.fit(_texts, _labels)
 
 # ---------------------------------------------------------------------------
-# 7. Public prediction function  (same interface as before)
+# 4. Public prediction function  (same interface as before)
 # ---------------------------------------------------------------------------
 
 def predict_ticket(text: str) -> dict[str, str]:
@@ -141,10 +133,8 @@ def predict_ticket(text: str) -> dict[str, str]:
         "category" — one of: Authentication | HR | Technical Support
         "response" — suggested auto-response string
     """
-    embedding: np.ndarray = _EMBED_MODEL.encode([text], show_progress_bar=False)
-    predicted_index: int  = int(_CLASSIFIER.predict(embedding)[0])
-    category: str         = _LABEL_ENC.inverse_transform([predicted_index])[0]
-    response: str         = _RESPONSES[category]
+    category: str = _PIPELINE.predict([text])[0]
+    response: str = _RESPONSES[category]
 
     return {
         "category": category,
@@ -158,27 +148,29 @@ def predict_ticket(text: str) -> dict[str, str]:
 
 if __name__ == "__main__":
     test_tickets = [
-        # Authentication
-        "I forgot my password",
-        "My account is locked out",
-        "OTP is not received on mobile",
-        # HR
-        "How many leaves are remaining?",
-        "I need to apply for sick leave",
-        "When will my salary be credited?",
-        # Technical Support
-        "The app keeps crashing",
-        "I cannot connect to VPN",
-        "Website is down with a 500 error",
-        # Unseen / edge cases
-        "Cannot sign in since yesterday",
-        "Need my payslip for this month",
-        "Dashboard data is incorrect",
+        ("I forgot my password",                    "Authentication"),
+        ("My account is locked out",                "Authentication"),
+        ("OTP is not received on mobile",           "Authentication"),
+        ("How many leaves are remaining?",          "HR"),
+        ("I need to apply for sick leave",          "HR"),
+        ("When will my salary be credited?",        "HR"),
+        ("The app keeps crashing",                  "Technical Support"),
+        ("I cannot connect to VPN",                 "Technical Support"),
+        ("Website is down with a 500 error",        "Technical Support"),
+        # Unseen edge cases
+        ("Cannot sign in since yesterday",          "Authentication"),
+        ("Need my payslip for this month",          "HR"),
+        ("Dashboard data looks wrong",              "Technical Support"),
     ]
 
-    print(f"\n{'Ticket':<45}  {'Category':<22}  Response (truncated)")
+    correct = 0
+    print(f"\n{'Ticket':<45}  {'Expected':<22}  {'Got':<22}  OK?")
     print("-" * 100)
-    for ticket in test_tickets:
-        result = predict_ticket(ticket)
-        truncated = result["response"][:55] + "..."
-        print(f"{ticket:<45}  {result['category']:<22}  {truncated}")
+    for ticket, expected in test_tickets:
+        result  = predict_ticket(ticket)
+        matched = result["category"] == expected
+        correct += matched
+        mark    = "✅" if matched else "❌"
+        print(f"{ticket:<45}  {expected:<22}  {result['category']:<22}  {mark}")
+
+    print(f"\nAccuracy: {correct}/{len(test_tickets)}")
